@@ -10,7 +10,7 @@ from sklearn.preprocessing import StandardScaler
 
 st.title("📈 AI Trading Assistant")
 
-API_KEY = "YOUR_API_KEY"
+API_KEY = st.secrets["API_KEY"]
 analyzer = SentimentIntensityAnalyzer()
 
 # -----------------------------
