@@ -19,27 +19,50 @@ analyzer = SentimentIntensityAnalyzer()
 ticker = st.selectbox("Choose stock:", ["AAPL", "TSLA", "NVDA", "META"])
 
 # -----------------------------
-# Sentiment (ONLY for prediction)
+# Cached Data Loader
 # -----------------------------
+@st.cache_data
+def load_data(ticker):
+    data = yf.download(ticker, start="2020-01-01")
+
+    # Fix MultiIndex issue
+    if isinstance(data.columns, pd.MultiIndex):
+        data.columns = data.columns.get_level_values(0)
+
+    return data
+
+# -----------------------------
+# Cached Sentiment
+# -----------------------------
+@st.cache_data(ttl=3600)
 def get_news_sentiment(ticker):
     url = f"https://newsapi.org/v2/everything?q={ticker}&apiKey={API_KEY}"
     response = requests.get(url).json()
 
     sentiments = []
     for article in response.get("articles", [])[:5]:
-        text = article["title"]
-        score = analyzer.polarity_scores(text)["compound"]
+        score = analyzer.polarity_scores(article["title"])["compound"]
         sentiments.append(score)
 
     return sum(sentiments)/len(sentiments) if sentiments else 0
 
 # -----------------------------
+# Cached Model Training
+# -----------------------------
+@st.cache_resource
+def train_models(X_train, y_train):
+    model = XGBClassifier(n_estimators=100, max_depth=4)
+    model.fit(X_train, y_train)
+
+    model2 = LogisticRegression(max_iter=1000)
+    model2.fit(X_train, y_train)
+
+    return model, model2
+
+# -----------------------------
 # Load Data
 # -----------------------------
-data = yf.download(ticker, start="2020-01-01")
-# Fix MultiIndex issue (Streamlit Cloud bug)
-if isinstance(data.columns, pd.MultiIndex):
-    data.columns = data.columns.get_level_values(0)
+data = load_data(ticker)
 
 if data.empty:
     st.error("Invalid ticker")
@@ -57,7 +80,7 @@ else:
     data["Volatility"] = data["Return"].rolling(10).std()
     data["RSI"] = 100 - (100 / (1 + data["Return"].rolling(14).mean()))
 
-    # Target FIXED
+    # Target
     data["Target"] = (data["Return"].shift(-1) > 0).astype(int)
 
     data = data.dropna()
@@ -74,15 +97,11 @@ else:
 
     # Scale
     scaler = StandardScaler()
-    X_train = scaler.fit_transform(X_train)
-    X_test = scaler.transform(X_test)
+    X_train_scaled = scaler.fit_transform(X_train)
+    X_test_scaled = scaler.transform(X_test)
 
-    # Models
-    model = XGBClassifier(n_estimators=100, max_depth=4)
-    model.fit(X_train, y_train)
-
-    model2 = LogisticRegression(max_iter=1000)
-    model2.fit(X_train, y_train)
+    # Cached model training
+    model, model2 = train_models(X_train_scaled, y_train)
 
     # Latest point
     latest = scaler.transform(X.iloc[-1:])
@@ -92,7 +111,7 @@ else:
 
     prob = (xgb_prob + lr_prob) / 2
 
-    # Sentiment ONLY for display
+    # Cached sentiment
     sentiment = get_news_sentiment(ticker)
 
     # -----------------------------
