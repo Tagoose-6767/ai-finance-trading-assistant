@@ -37,6 +37,9 @@ def get_news_sentiment(ticker):
 # Load Data
 # -----------------------------
 data = yf.download(ticker, start="2020-01-01")
+# Fix MultiIndex issue (Streamlit Cloud bug)
+if isinstance(data.columns, pd.MultiIndex):
+    data.columns = data.columns.get_level_values(0)
 
 if data.empty:
     st.error("Invalid ticker")
